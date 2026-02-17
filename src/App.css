@@ -126,11 +126,11 @@ body {
   border-radius: 0 0 6px 0;
 }
 
-.scan-line {
+.scan-line {                
   position: absolute;
   left: 0;
   right: 0;
-  top: 40%;
+  top: 50%;
   transform: translateY(-50%);
   height: 3px;
   background: linear-gradient(

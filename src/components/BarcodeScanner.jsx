@@ -7,7 +7,7 @@ import {
 } from '@zxing/library';
 import { HTMLCanvasElementLuminanceSource } from '@zxing/library/esm/browser';
 
-// Line height as fraction of video height (scan region - wider for IMEI)
+// Line height as fraction of video height
 const LINE_HEIGHT_FRACTION = 0.22;
 const SCAN_INTERVAL_MS = 120;
 const SEND_AFTER_STABLE_MS = 3000;
@@ -31,7 +31,6 @@ export default function BarcodeScanner() {
 
   const readerRef = useRef(null);
 
-  // Send scanned data to Telegram bot
   const sendToBot = (data) => {
     if (window.Telegram?.WebApp) {
       window.Telegram.WebApp.sendData(data);
@@ -41,7 +40,6 @@ export default function BarcodeScanner() {
     }
   };
 
-  // Telegram: expand to full height when opened in Telegram
   useEffect(() => {
     if (window.Telegram?.WebApp) {
       window.Telegram.WebApp.expand();
@@ -78,20 +76,36 @@ export default function BarcodeScanner() {
 
         setStatus('scanning');
 
-        // Scan loop: crop strip under line and decode
         const scan = async () => {
           if (video.readyState !== video.HAVE_ENOUGH_DATA || sentRef.current || scanningRef.current) return;
 
           const vw = video.videoWidth;
           const vh = video.videoHeight;
-          if (!vw || !vh) return;
+          const displayCanvas = canvasRef.current;
+          if (!vw || !vh || !displayCanvas) return;
 
           scanningRef.current = true;
 
-          const lineHeight = Math.max(80, Math.floor(vh * LINE_HEIGHT_FRACTION));
-          const y = Math.floor((vh - lineHeight) / 2);
+          // --- FIX START: Coordinate alignment for object-fit: cover ---
+          const displayRect = displayCanvas.getBoundingClientRect();
+          const displayRatio = displayRect.width / displayRect.height;
+          const videoRatio = vw / vh;
 
-          // Extract strip under the line for barcode decode
+          let offsetY = 0;
+          let effectiveHeight = vh;
+
+          // Calculate if the video is being cropped top/bottom by the browser
+          if (videoRatio < displayRatio) {
+            const scaledVideoHeight = vw / displayRatio;
+            offsetY = (vh - scaledVideoHeight) / 2;
+            effectiveHeight = scaledVideoHeight;
+          }
+
+          const lineHeight = Math.max(80, Math.floor(vh * LINE_HEIGHT_FRACTION));
+          // Center the reading zone within the VISIBLE portion of the video
+          const y = Math.floor(offsetY + (effectiveHeight - lineHeight) / 2);
+          // --- FIX END ---
+
           const stripCtx = stripCanvas.getContext('2d');
           stripCanvas.width = vw;
           stripCanvas.height = lineHeight;
@@ -102,9 +116,7 @@ export default function BarcodeScanner() {
               const luminanceSource = new HTMLCanvasElementLuminanceSource(stripCanvas, false);
               const binaryBitmap = new BinaryBitmap(binarizer(luminanceSource));
               return readerRef.current.decode(binaryBitmap);
-            } catch {
-              return null;
-            }
+            } catch { return null; }
           };
 
           const tryDecodeInverted = () => {
@@ -112,15 +124,14 @@ export default function BarcodeScanner() {
               const luminanceSource = new HTMLCanvasElementLuminanceSource(stripCanvas, true);
               const binaryBitmap = new BinaryBitmap(new HybridBinarizer(luminanceSource));
               return readerRef.current.decode(binaryBitmap);
-            } catch {
-              return null;
-            }
+            } catch { return null; }
           };
 
           try {
-            let result = tryDecode((s) => new HybridBinarizer(s));
-            if (!result) result = tryDecode((s) => new GlobalHistogramBinarizer(s));
-            if (!result) result = tryDecodeInverted();
+            let result = tryDecode((s) => new HybridBinarizer(s)) || 
+                         tryDecode((s) => new GlobalHistogramBinarizer(s)) || 
+                         tryDecodeInverted();
+
             if (result && !sentRef.current) {
               const text = result.getText();
               if (!text) {
@@ -146,12 +157,13 @@ export default function BarcodeScanner() {
                   setCountdown(Math.ceil((SEND_AFTER_STABLE_MS - elapsed) / 1000));
                 }
               }
+            } else {
+              // No barcode in frame - reset stability if needed
+              // (Keep stableText to allow slight hand movements)
             }
           } catch {
-            // no barcode in frame - reset stability
             stableTextRef.current = null;
             setCountdown(null);
-            // No barcode in this frame - expected most of the time
           } finally {
             scanningRef.current = false;
           }
@@ -188,22 +200,13 @@ export default function BarcodeScanner() {
   return (
     <div className="barcode-scanner">
       <div className="scanner-viewport">
-        <video
-          ref={videoRef}
-          playsInline
-          muted
-          style={{ display: 'none' }}
-        />
+        <video ref={videoRef} playsInline muted style={{ display: 'none' }} />
         <canvas
           ref={canvasRef}
           className="scanner-canvas"
           style={{ display: status === 'loading' ? 'none' : 'block' }}
         />
-        <canvas
-          ref={stripCanvasRef}
-          className="strip-canvas"
-          aria-hidden
-        />
+        <canvas ref={stripCanvasRef} className="strip-canvas" aria-hidden />
         {status !== 'loading' && (
           <div className="line-overlay">
             <div className="viewfinder">
@@ -228,15 +231,9 @@ export default function BarcodeScanner() {
             {countdown != null ? `ثبّته ${countdown} ثانية للإرسال` : 'تم القراءة!'}
           </p>
         )}
-        {status === 'sent' && (
-          <p className="status-text success">تم الإرسال!</p>
-        )}
-        {status === 'error' && (
-          <p className="status-text error">{error}</p>
-        )}
-        {lastScanned && (
-          <p className="scanned-value">{lastScanned}</p>
-        )}
+        {status === 'sent' && <p className="status-text success">تم الإرسال!</p>}
+        {status === 'error' && <p className="status-text error">{error}</p>}
+        {lastScanned && <p className="scanned-value">{lastScanned}</p>}
       </div>
     </div>
   );
