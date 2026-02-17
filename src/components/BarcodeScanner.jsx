@@ -134,7 +134,7 @@ export default function BarcodeScanner() {
                 stableSinceRef.current = now;
                 setLastScanned(text);
                 setStatus('found');
-                setCountdown(3);
+                setCountdown(1);
               } else {
                 const elapsed = now - stableSinceRef.current;
                 if (elapsed >= SEND_AFTER_STABLE_MS) {
