@@ -10,7 +10,7 @@ import { HTMLCanvasElementLuminanceSource } from '@zxing/library/esm/browser';
 // Line height as fraction of video height (scan region - wider for IMEI)
 const LINE_HEIGHT_FRACTION = 0.22;
 const SCAN_INTERVAL_MS = 120;
-const SEND_DELAY_MS = 1000;
+const SEND_AFTER_STABLE_MS = 3000;
 
 export default function BarcodeScanner() {
   const videoRef = useRef(null);
@@ -18,28 +18,35 @@ export default function BarcodeScanner() {
   const stripCanvasRef = useRef(null);
   const streamRef = useRef(null);
   const scanIntervalRef = useRef(null);
-  const sendTimeoutRef = useRef(null);
   const drawLoopRef = useRef(null);
   const sentRef = useRef(false);
   const scanningRef = useRef(false);
+  const stableTextRef = useRef(null);
+  const stableSinceRef = useRef(0);
 
   const [status, setStatus] = useState('loading');
   const [lastScanned, setLastScanned] = useState(null);
   const [error, setError] = useState(null);
+  const [countdown, setCountdown] = useState(null);
 
   const readerRef = useRef(null);
-  const lastResultRef = useRef(null);
 
   // Send scanned data to Telegram bot
   const sendToBot = (data) => {
     if (window.Telegram?.WebApp) {
       window.Telegram.WebApp.sendData(data);
     } else {
-      // Fallback: show in console when not in Telegram
       console.log('Scanned (send to bot):', data);
       setLastScanned(data);
     }
   };
+
+  // Telegram: expand to full height when opened in Telegram
+  useEffect(() => {
+    if (window.Telegram?.WebApp) {
+      window.Telegram.WebApp.expand();
+    }
+  }, []);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -116,20 +123,34 @@ export default function BarcodeScanner() {
             if (!result) result = tryDecodeInverted();
             if (result && !sentRef.current) {
               const text = result.getText();
-              if (text && text !== lastResultRef.current) {
-                lastResultRef.current = text;
+              if (!text) {
+                stableTextRef.current = null;
+                setCountdown(null);
+                return;
+              }
+              const now = Date.now();
+              if (text !== stableTextRef.current) {
+                stableTextRef.current = text;
+                stableSinceRef.current = now;
                 setLastScanned(text);
                 setStatus('found');
-
-                // Send to bot after 1 second
-                sendTimeoutRef.current = setTimeout(() => {
+                setCountdown(3);
+              } else {
+                const elapsed = now - stableSinceRef.current;
+                if (elapsed >= SEND_AFTER_STABLE_MS) {
                   sendToBot(text);
                   sentRef.current = true;
                   setStatus('sent');
-                }, SEND_DELAY_MS);
+                  setCountdown(null);
+                } else {
+                  setCountdown(Math.ceil((SEND_AFTER_STABLE_MS - elapsed) / 1000));
+                }
               }
             }
           } catch {
+            // no barcode in frame - reset stability
+            stableTextRef.current = null;
+            setCountdown(null);
             // No barcode in this frame - expected most of the time
           } finally {
             scanningRef.current = false;
@@ -148,7 +169,7 @@ export default function BarcodeScanner() {
         drawLoopRef.current = requestAnimationFrame(drawLoop);
         scanIntervalRef.current = setInterval(scan, SCAN_INTERVAL_MS);
       } catch (err) {
-        setError(err.message || 'Camera access failed');
+        setError(err.message || 'فشل الوصول للكاميرا');
         setStatus('error');
       }
     };
@@ -158,7 +179,6 @@ export default function BarcodeScanner() {
     return () => {
       if (drawLoopRef.current) cancelAnimationFrame(drawLoopRef.current);
       if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
-      if (sendTimeoutRef.current) clearTimeout(sendTimeoutRef.current);
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
       }
@@ -199,15 +219,17 @@ export default function BarcodeScanner() {
       </div>
 
       <div className="scanner-status">
-        {status === 'loading' && <p className="status-text">Opening camera...</p>}
+        {status === 'loading' && <p className="status-text">جاري فتح الكاميرا...</p>}
         {status === 'scanning' && (
-          <p className="status-text">Position barcode or IMEI under the green line</p>
+          <p className="status-text">ضع الباركود أو الآيماي تحت الخط الأخضر</p>
         )}
         {status === 'found' && (
-          <p className="status-text success">Found! Sending in 1 second...</p>
+          <p className="status-text success">
+            {countdown != null ? `ثبّته ${countdown} ثانية للإرسال` : 'تم القراءة!'}
+          </p>
         )}
         {status === 'sent' && (
-          <p className="status-text success">Sent to bot!</p>
+          <p className="status-text success">تم الإرسال!</p>
         )}
         {status === 'error' && (
           <p className="status-text error">{error}</p>

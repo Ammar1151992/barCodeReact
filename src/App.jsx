@@ -3,8 +3,8 @@ import './App.css'
 
 function App() {
   return (
-    <div className="app">
-      <h1>Barcode & IMEI Scanner</h1>
+    <div className="app" dir="rtl">
+      <h1>ماسح الباركود والآيماي</h1>
       <BarcodeScanner />
     </div>
   )
