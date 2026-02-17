@@ -10,7 +10,7 @@ import { HTMLCanvasElementLuminanceSource } from '@zxing/library/esm/browser';
 // Line height as fraction of video height
 const LINE_HEIGHT_FRACTION = 0.22;
 const SCAN_INTERVAL_MS = 120;
-const SEND_AFTER_STABLE_MS = 3000;
+const SEND_AFTER_STABLE_MS = 1000;
 
 export default function BarcodeScanner() {
   const videoRef = useRef(null);
